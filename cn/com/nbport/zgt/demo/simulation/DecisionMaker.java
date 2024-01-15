@@ -11,4 +11,22 @@ public class DecisionMaker {
         return true;
     }
 
+    public Integer getTruckNextPositionWIRef(SimulationContext context, String truckId) {
+        // todo
+        return 0;
+    }
+
+    public String getTruckNextPosition(SimulationContext context, String truckId) {
+        return "";
+    }
+
+    public String getQCNextPosition(SimulationContext context, String qcId) {
+        // todo
+        return "";
+    }
+
+    public String getASCNextPosition(SimulationContext context, String  ascId) {
+        // todo
+        return "";
+    }
 }
