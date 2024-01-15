@@ -29,4 +29,8 @@ public class DecisionMaker {
         // todo
         return "";
     }
-}
+
+    public void waitingListSort(SimulationContext context, String position) {
+
+    }
+ }

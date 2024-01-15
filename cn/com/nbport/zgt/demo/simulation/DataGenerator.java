@@ -11,12 +11,12 @@ public class DataGenerator {
         return 10;
     }
     public long predictTruckWorkTime(SimulationContext context, String truckId){
-        return 10;
+        return 5;
     }
     public long predictQCWorkTime(SimulationContext context, String qcId){
-        return 10;
+        return 15;
     }
     public long predictASCWorkTime(SimulationContext context, String ascId){
-        return 10;
+        return 5;
     }
 }

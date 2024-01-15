@@ -3,7 +3,6 @@ package cn.com.nbport.zgt.demo.simulation;
 import cn.com.nbport.zgt.demo.simulation.entity.*;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -26,102 +25,110 @@ public class EventHandler {
     }
 
     private static void handleTruckArrival(SimulationContext context, Event event, DecisionMaker dm, DataGenerator dg) {
+        // 消费集卡到达事件
         //--------------------------------------------------------------------------------------------------------------
+        // 当前位置与集卡等待队列
         String position = event.getPosition();
         if (!context.getPositionToWaitingEntities().containsKey(position)) {
             context.getPositionToWaitingEntities().put(position, new ArrayList<>());
         }
         List<String> waitingList = context.getPositionToWaitingEntities().get(position);
         //--------------------------------------------------------------------------------------------------------------
+        // 刷新集卡当前位置
         String truckId = event.getTruckId();
         Truck truck = context.getTruckMap().get(truckId);
         truck.setCurrentPosition(position);
         //--------------------------------------------------------------------------------------------------------------
+        // 获取当前位置的龙门吊 / 桥吊
+        String currentPositionDevice = context.getPositionToCurrentOccupiedEntity().get(position);
+        //--------------------------------------------------------------------------------------------------------------
         if (waitingList.isEmpty()) {
             // 当前位置没有车排队
-            String currentPositionDevice = context.getPositionToCurrentOccupiedEntity().get(position);
+            // - - - - - - - - - - - - - - - - - - - -
             if (Objects.isNull(currentPositionDevice) || currentPositionDevice.isEmpty()) {
+                // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
                 // 当前位置没有桥吊 / 龙门吊，集卡进入等待队列
                 truck.setStatus(TruckStatusEnum.WAITING);
                 waitingList.add(truckId);
+                dm.waitingListSort(context, position);
+                // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
                 // 决策是否有龙门吊 / 桥吊需要移动
                 String pulledDevice = dm.pullDeviceToOtherPosition(context, position);
                 if (Objects.isNull(pulledDevice) || pulledDevice.isEmpty()) {
                     // 龙门吊 / 桥吊移动，修改设备状态，生成新的事件
                     if (context.getAscMap().containsKey(pulledDevice)) {
-                        ASC asc = context.getAscMap().get(pulledDevice);
-                        ascMove(context, event, dg, pulledDevice, asc, position);
+                        ascMove(context, event, dg, pulledDevice, position);
                     } else if (context.getQcMap().containsKey(pulledDevice)) {
-                        QC qc = context.getQcMap().get(pulledDevice);
-                        qcMove(context, event, dg, pulledDevice, qc, position);
+                        qcMove(context, event, dg, pulledDevice, position);
                     }
                 }
+                // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
             } else {
                 // 当前位置有桥吊 / 龙门吊
                 // 判断是否能执行工作
                 if (dm.judgeRationalToStartWork(context, event)) {
-                    //--------------------------------------------------------------------------------------------------
-                    // 更新集卡的状态，生成新的事件
-                    truck.setStatus(TruckStatusEnum.WORKING);
-                    long truckWorkTimePrediction = dg.predictTruckWorkTime(context, truckId);
-                    Event truckWorkDoneEvent = new Event(event.getEventTime() + truckWorkTimePrediction,
-                            EventEnum.TRUCK_WORK_DONE, position, truckId, currentPositionDevice, null);
-                    context.getEventList().add(truckWorkDoneEvent);
-                    //--------------------------------------------------------------------------------------------------
-                    // 龙门吊 / 桥吊的设备状态，生成新的事件
-                    // todo QC extends Crane, ASC extends Crane，就不需要判断是龙门吊还是桥吊
-                    if (context.getAscMap().containsKey(currentPositionDevice)) {
-                        ASC asc = context.getAscMap().get(currentPositionDevice);
-                        ascWork(context, event, dg, position, currentPositionDevice, asc, truckId, truck);
-                    } else if (context.getQcMap().containsKey(currentPositionDevice)) {
-                        QC qc = context.getQcMap().get(currentPositionDevice);
-                        qcWork(context, event, dg, position, currentPositionDevice, qc, truckId, truck);
-                    }
+                    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+                    // 集卡 / 龙门吊 / 桥吊的设备状态，生成新的事件
+                    truckCraneWork(context, event, dg, position, truckId, currentPositionDevice);
+                    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
                 } else {
                     // 当前位置有车排队，集卡进入等待队列
                     truck.setStatus(TruckStatusEnum.WAITING);
                     waitingList.add(truckId);
+                    dm.waitingListSort(context, position);
                 }
             }
         } else {
+            if (dm.judgeRationalToStartWork(context, event)) {
+                // 可以超车 / 调整顺序
+                // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+                // 集卡 / 龙门吊 / 桥吊的设备状态，生成新的事件
+                truckCraneWork(context, event, dg, position, truckId, currentPositionDevice);
+                // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+            }
             // 当前位置有车排队，集卡进入等待队列
             truck.setStatus(TruckStatusEnum.WAITING);
             waitingList.add(truckId);
+            dm.waitingListSort(context, position);
         }
     }
 
     private static void handleQCArrival(SimulationContext context, Event event, DecisionMaker dm, DataGenerator dg) {
+        // 消费桥吊到达事件
         //--------------------------------------------------------------------------------------------------------------
+        // 当前位置与集卡等待队列
         String position = event.getPosition();
         if (!context.getPositionToWaitingEntities().containsKey(position)) {
             context.getPositionToWaitingEntities().put(position, new ArrayList<>());
         }
         List<String> waitingList = context.getPositionToWaitingEntities().get(position);
         //--------------------------------------------------------------------------------------------------------------
-        // 处理桥吊的当前状态
+        // 刷新桥吊当前位置
         String qcId = event.getQcId();
         QC qc = context.getQcMap().get(qcId);
         qc.setCurrentPosition(position);
         //--------------------------------------------------------------------------------------------------------------
         if (waitingList.isEmpty()) {
+            // 当前位置没有车辆排队
             qc.setStatus(QCStatusEnum.WAITING);
         } else {
+            // 当前位置有车辆排队
             //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
             // 生成集卡完成事件
-            String truckId = waitingList.get(0);
-            Truck truck = context.getTruckMap().get(truckId);
-            truck.setStatus(TruckStatusEnum.WORKING);
-            long truckWorkTimePrediction = dg.predictTruckWorkTime(context, truckId);
-            Event truckWorkDoneEvent = new Event(event.getEventTime() + truckWorkTimePrediction,
-                    EventEnum.TRUCK_WORK_DONE, position, truckId, null, qcId);
-            context.getEventList().add(truckWorkDoneEvent);
+            if (dm.judgeRationalToStartWork(context, event)) {
+                String truckId = waitingList.get(0);
+                truckWork(context, event, dg, position, truckId, null, qcId);
+                qcWork(context, event, dg, position, qcId, truckId);
+            } else {
+                qc.setStatus(QCStatusEnum.WAITING);
+            }
             //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-            // 生成桥吊完成事件
-            qcWork(context, event, dg, position, qcId, qc, truckId, truck);
+
         }
     }
 
     private static void handleASCArrival(SimulationContext context, Event event, DecisionMaker dm, DataGenerator dg) {
+        // 消费龙门吊到达事件
         //--------------------------------------------------------------------------------------------------------------
         String position = event.getPosition();
         if (!context.getPositionToWaitingEntities().containsKey(position)) {
@@ -135,20 +142,18 @@ public class EventHandler {
         asc.setCurrentPosition(position);
         //--------------------------------------------------------------------------------------------------------------
         if (waitingList.isEmpty()) {
+            // 当前位置没有车辆排队
             asc.setStatus(ASCStatusEnum.WAITING);
         } else {
+            // 当前位置有车辆排队
             //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
             // 生成集卡完成事件
-            String truckId = waitingList.get(0);
-            Truck truck = context.getTruckMap().get(truckId);
-            truck.setStatus(TruckStatusEnum.WORKING);
-            long truckWorkTimePrediction = dg.predictTruckWorkTime(context, truckId);
-            Event truckWorkDoneEvent = new Event(event.getEventTime() + truckWorkTimePrediction,
-                    EventEnum.TRUCK_WORK_DONE, position, truckId, ascId, null);
-            context.getEventList().add(truckWorkDoneEvent);
+            if (dm.judgeRationalToStartWork(context, event)) {
+                String truckId = waitingList.get(0);
+                truckWork(context, event, dg, position, truckId, ascId, null);
+                ascWork(context, event, dg, position, ascId, truckId);
+            }
             //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-            // 生成龙门吊完成事件
-            ascWork(context, event, dg, position, ascId, asc, truckId, truck);
         }
     }
 
@@ -164,7 +169,7 @@ public class EventHandler {
             truck.setStatus(TruckStatusEnum.MOVING);
             truck.setTargetPosition(nextPosition);
             long truckMoveTimePrediction = dg.predictTruckMoveTime(context, truckId);
-            Event truckArrivalEvent = new Event(event.getEventTime() + truckMoveTimePrediction, EventEnum.TRUCK_ARRIVAL,nextPosition, truckId, null, null);
+            Event truckArrivalEvent = new Event(event.getEventTime() + truckMoveTimePrediction, EventEnum.TRUCK_ARRIVAL, nextPosition, truckId, null, null);
             context.getEventList().add(truckArrivalEvent);
         }
     }
@@ -178,9 +183,13 @@ public class EventHandler {
             List<String> waitingList = context.getPositionToWaitingEntities().get(position);
             if (waitingList.isEmpty()) {
                 qc.setStatus(QCStatusEnum.WAITING);
+            } else {
+                String truckId = waitingList.get(0);
+                qcWork(context, event, dg, position, qcId, truckId);
+                truckWork(context, event,dg, position, truckId, null, qcId);
             }
         } else {
-            qcMove(context, event, dg, qcId, qc, nextPosition);
+            qcMove(context, event, dg, qcId, nextPosition);
         }
     }
 
@@ -193,21 +202,27 @@ public class EventHandler {
             List<String> waitingList = context.getPositionToWaitingEntities().get(position);
             if (waitingList.isEmpty()) {
                 asc.setStatus(ASCStatusEnum.WAITING);
+            } else {
+                String truckId = waitingList.get(0);
+                ascWork(context, event, dg, position, ascId, truckId);
+                truckWork(context, event,dg, position, truckId, ascId, null);
             }
         } else {
-            ascMove(context, event, dg, ascId, asc, nextPosition);
+            ascMove(context, event, dg, ascId, nextPosition);
         }
     }
 
-    private static void qcMove(SimulationContext context, Event event, DataGenerator dg, String qcId, QC qc, String nextPosition) {
+    private static void qcMove(SimulationContext context, Event event, DataGenerator dg, String qcId, String nextPosition) {
+        QC qc = context.getQcMap().get(qcId);
         qc.setStatus(QCStatusEnum.MOVING);
         qc.setTargetPosition(nextPosition);
         long qcMoveTimePrediction = dg.predictQCMoveTime(context, qcId);
-        Event qcArrivalEvent = new Event(event.getEventTime() + qcMoveTimePrediction, EventEnum.QC_ARRIVAL, nextPosition, null, null ,qcId);
+        Event qcArrivalEvent = new Event(event.getEventTime() + qcMoveTimePrediction, EventEnum.QC_ARRIVAL, nextPosition, null, null, qcId);
         context.getEventList().add(qcArrivalEvent);
     }
 
-    private static void ascMove(SimulationContext context, Event event, DataGenerator dg, String ascId, ASC asc, String nextPosition) {
+    private static void ascMove(SimulationContext context, Event event, DataGenerator dg, String ascId, String nextPosition) {
+        ASC asc = context.getAscMap().get(ascId);
         asc.setStatus(ASCStatusEnum.MOVING);
         asc.setTargetPosition(nextPosition);
         long ascMoveTimePrediction = dg.predictASCMoveTime(context, ascId);
@@ -215,7 +230,9 @@ public class EventHandler {
         context.getEventList().add(ascArrivalEvent);
     }
 
-    private static void qcWork(SimulationContext context, Event event, DataGenerator dg, String position, String qcId, QC qc, String truckId, Truck truck) {
+    private static void qcWork(SimulationContext context, Event event, DataGenerator dg, String position, String qcId, String truckId) {
+        QC qc = context.getQcMap().get(qcId);
+        Truck truck = context.getTruckMap().get(truckId);
         qc.setStatus(QCStatusEnum.WORKING);
         qc.setCurrentWIRef(truck.getCurrentWIRef());
         long qcWorkTimePrediction = dg.predictQCWorkTime(context, qcId);
@@ -224,12 +241,33 @@ public class EventHandler {
         context.getEventList().add(qcWorkDoneEvent);
     }
 
-    private static void ascWork(SimulationContext context, Event event, DataGenerator dg, String position, String ascId, ASC asc, String truckId, Truck truck) {
+    private static void ascWork(SimulationContext context, Event event, DataGenerator dg, String position, String ascId, String truckId) {
+        ASC asc = context.getAscMap().get(ascId);
+        Truck truck = context.getTruckMap().get(truckId);
         asc.setStatus(ASCStatusEnum.WORKING);
         asc.setCurrentWIRef(truck.getCurrentWIRef());
         long ascWorkTimePrediction = dg.predictASCWorkTime(context, ascId);
         Event ascWorkDoneEvent = new Event(event.getEventTime() + ascWorkTimePrediction,
                 EventEnum.ASC_WORK_DONE, position, truckId, ascId, null);
         context.getEventList().add(ascWorkDoneEvent);
+    }
+
+    private static void truckWork(SimulationContext context, Event event, DataGenerator dg, String position, String truckId, String ascId, String qcId) {
+        Truck truck = context.getTruckMap().get(truckId);
+        truck.setStatus(TruckStatusEnum.WORKING);
+        long truckWorkTimePrediction = dg.predictTruckWorkTime(context, truckId);
+        Event truckWorkDoneEvent = new Event(event.getEventTime() + truckWorkTimePrediction,
+                EventEnum.TRUCK_WORK_DONE, position, truckId, ascId, qcId);
+        context.getEventList().add(truckWorkDoneEvent);
+    }
+
+    private static void truckCraneWork(SimulationContext context, Event event, DataGenerator dg, String position, String truckId, String currentPositionDevice) {
+        if (context.getAscMap().containsKey(currentPositionDevice)) {
+            truckWork(context, event, dg, position, truckId, currentPositionDevice, null);
+            ascWork(context, event, dg, position, currentPositionDevice, truckId);
+        } else if (context.getQcMap().containsKey(currentPositionDevice)) {
+            truckWork(context, event, dg, position, truckId, null, currentPositionDevice);
+            qcWork(context, event, dg, position, currentPositionDevice, truckId);
+        }
     }
 }
