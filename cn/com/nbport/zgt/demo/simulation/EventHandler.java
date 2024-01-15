@@ -123,7 +123,6 @@ public class EventHandler {
                 qc.setStatus(QCStatusEnum.WAITING);
             }
             //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
         }
     }
 

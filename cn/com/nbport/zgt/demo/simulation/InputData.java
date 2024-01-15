@@ -1,5 +1,5 @@
 package cn.com.nbport.zgt.demo.simulation;
 
-public class SimulationInitializer {
+public class InputData {
 
 }
